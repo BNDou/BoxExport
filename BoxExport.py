@@ -5,7 +5,7 @@ FilePath     : /BoxExport/BoxExport.py
 Description  :  
 Author       : BNDou
 Date         : 2025-10-28 21:32:19
-LastEditTime : 2025-10-28 23:02:43
+LastEditTime : 2025-10-28 23:20:22
 '''
 
 import os
@@ -452,6 +452,7 @@ class App:
         seq = int(self.seq_var.get() or 1)
         self._running = True
         self.btn_start.config(state=tk.DISABLED)
+        self.btn_stop.config(state=tk.NORMAL)
         self.prog['value'] = 0
         self.percent_var.set("0.00%")
         self.txt.delete(1.0, tk.END)
