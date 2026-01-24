@@ -5,9 +5,8 @@ FilePath     : /BoxExport/BoxExport.py
 Description  :  
 Author       : BNDou
 Date         : 2025-10-28 21:32:19
-LastEditTime : 2025-10-28 23:20:22
+LastEditTime : 2026-01-25 01:42:46
 '''
-
 import os
 import sys
 import time
@@ -28,9 +27,22 @@ except ImportError as e:
 
 try:
     from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Font, Border, Side
+    from openpyxl.styles import Alignment, Font, Border, Side, PatternFill
 except ImportError as e:
     print("缺少依赖 openpyxl，请先安装：pip install openpyxl", file=sys.stderr)
+    raise
+
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+except ImportError as e:
+    print("缺少依赖 reportlab，请先安装：pip install reportlab", file=sys.stderr)
     raise
 
 # PyInstaller/auto-py-to-exe 打包时，openpyxl 某些内部 writer 模块可能不会被自动收集。
@@ -101,7 +113,7 @@ def read_records_from_xls(xls_path: str) -> List[dict]:
     H 成像张数
     I 备注（暂不导出）
 
-    假设第2行是表头，从第3行开始为数据；遇到空的“病案号”即停止。
+    假设第2行是表头，从第3行开始为数据；遇到空的"病案号"即停止。
     """
     book = xlrd.open_workbook(xls_path)
     sheet = book.sheet_by_index(0)
@@ -149,15 +161,18 @@ def build_and_export_workbook(records: List[dict], box_number: Optional[int], se
 
     center = Alignment(horizontal="center", vertical="center")
     bold_center = Alignment(horizontal="center", vertical="center")
-    bold_font = Font(bold=True)
+    vcenter_left = Alignment(horizontal="left", vertical="center")
+    vcenter_general = Alignment(horizontal="general", vertical="center")
     thin_side = Side(style="thin", color="000000")
     thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+    # 表头填充颜色
+    header_fill = PatternFill(start_color="EFEFEF", end_color="EFEFEF", fill_type="solid")
 
     # A1-H1 合并，标题
     ws.merge_cells("A1:H1")
     ws["A1"] = "卷内目录"
     ws["A1"].alignment = center
-    ws["A1"].font = Font(name="宋体", size=20, bold=True)
+    ws["A1"].font = Font(name="Microsoft YaHei UI", size=20, bold=True)
     ws.row_dimensions[1].height = 25
 
     # E2, F2, G2, H2 固定内容
@@ -167,16 +182,16 @@ def build_and_export_workbook(records: List[dict], box_number: Optional[int], se
     ws["H2"] = "BL"
     for addr in ("E2", "F2", "G2", "H2"):
         ws[addr].alignment = center
-        ws[addr].font = Font(name="宋体", size=16)
+        ws[addr].font = Font(name="Microsoft YaHei UI", size=16)
     ws.row_dimensions[2].height = 25
 
     # G3, H3 箱号
     ws["G3"] = "箱号"
     ws["G3"].alignment = center
-    ws["G3"].font = Font(name="宋体", size=16)
+    ws["G3"].font = Font(name="Microsoft YaHei UI", size=16)
     ws["H3"] = box_number if box_number is not None else ""
     ws["H3"].alignment = center
-    ws["H3"].font = Font(name="宋体", size=16)
+    ws["H3"].font = Font(name="Microsoft YaHei UI", size=16)
     ws.row_dimensions[3].height = 25
 
     # 第4行表头
@@ -193,36 +208,48 @@ def build_and_export_workbook(records: List[dict], box_number: Optional[int], se
     for addr, text in headers:
         ws[addr] = text
         ws[addr].alignment = bold_center
-        ws[addr].font = bold_font
+        ws[addr].font = Font(name="Microsoft YaHei UI", bold=True)
+        ws[addr].fill = header_fill
 
     # 列宽（按要求）
-    ws.column_dimensions['A'].width = 8
-    ws.column_dimensions['B'].width = 11
+    ws.column_dimensions['A'].width = 9
+    ws.column_dimensions['B'].width = 13
     ws.column_dimensions['C'].width = 13
     ws.column_dimensions['D'].width = 8
-    ws.column_dimensions['E'].width = 11
-    ws.column_dimensions['F'].width = 11
+    ws.column_dimensions['E'].width = 12
+    ws.column_dimensions['F'].width = 12
     ws.column_dimensions['G'].width = 8
-    ws.column_dimensions['H'].width = 15
+    ws.column_dimensions['H'].width = 13
 
     # 数据起始行
     current_row = 5
     seq = sequence_start
 
     for rec in records:
+        # 设置数据行行高
+        ws.row_dimensions[current_row].height = 13.5
         # A 顺序号（居中）
         ws.cell(row=current_row, column=1, value=seq).alignment = center
+        ws.cell(row=current_row, column=1, value=seq).font = Font(name="Microsoft YaHei UI")
 
         # B-H 数据
         ws.cell(row=current_row, column=2, value=rec.get("case_no"))
         ws.cell(row=current_row, column=3, value=rec.get("department"))
         ws.cell(row=current_row, column=4, value=rec.get("patient_name"))
+        # 设置字体和垂直居中
+        for col in range(2, 9):
+            cell = ws.cell(row=current_row, column=col)
+            cell.font = Font(name="Microsoft YaHei UI")
+            cell.alignment = vcenter_left
 
         # E 出院时间, F 入院时间（尽量保持日期展示）
         e_val = rec.get("discharge_time")
         f_val = rec.get("admission_time")
         e_cell = ws.cell(row=current_row, column=5, value=e_val)
         f_cell = ws.cell(row=current_row, column=6, value=f_val)
+        # 设置垂直居中对齐
+        e_cell.alignment = vcenter_left
+        f_cell.alignment = vcenter_left
         # 若为 datetime，设置日期格式
         try:
             from datetime import datetime
@@ -236,9 +263,11 @@ def build_and_export_workbook(records: List[dict], box_number: Optional[int], se
         # G 成像张数（居中）
         g_cell = ws.cell(row=current_row, column=7, value=rec.get("image_count"))
         g_cell.alignment = center
+        g_cell.font = Font(name="Microsoft YaHei UI")
 
         # H 备注 先留空
         ws.cell(row=current_row, column=8, value="")
+        ws.cell(row=current_row, column=8).font = Font(name="Microsoft YaHei UI")
 
         current_row += 1
         seq += 1
@@ -254,10 +283,188 @@ def build_and_export_workbook(records: List[dict], box_number: Optional[int], se
     return seq
 
 
+def build_and_export_pdf(records: List[dict], box_number: Optional[int], sequence_start: int, out_path: str) -> int:
+    """
+    使用reportlab生成PDF格式的卷内目录，A4纸张大小，完全匹配Excel格式
+    """
+    # 初始化字体变量
+    registered_font_name = 'Helvetica'
+    registered_bold_font = 'Helvetica-Bold'
+    
+    # 设置较小的上下边距，确保内容更多
+    doc = SimpleDocTemplate(out_path, pagesize=A4, topMargin=10*mm, bottomMargin=10*mm)
+    
+    # 注册中文字体（优先使用项目fonts目录，再使用系统字体）
+    try:
+        # 获取项目根目录
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        fonts_dir = os.path.join(script_dir, "fonts")
+        
+        # 优先使用项目fonts目录中的MiSans字体
+        normal_font = os.path.join(fonts_dir, "MiSans-Normal.ttf")
+        bold_font = os.path.join(fonts_dir, "MiSans-Demibold.ttf")
+        
+        if os.path.exists(normal_font) and os.path.exists(bold_font):
+            pdfmetrics.registerFont(TTFont('MiSans-Normal', normal_font))
+            pdfmetrics.registerFont(TTFont('MiSans-Demibold', bold_font))
+            registered_font_name = 'MiSans-Normal'
+            registered_bold_font = 'MiSans-Demibold'
+        else:
+            # 如果项目目录中没有，则尝试系统字体
+            # 尝试微软雅黑
+            yahei_normal = r"C:\Windows\Fonts\msyh.ttf"
+            yahei_bold = r"C:\Windows\Fonts\msyhbd.ttf"
+            
+            if os.path.exists(yahei_normal) and os.path.exists(yahei_bold):
+                pdfmetrics.registerFont(TTFont('MicrosoftYaHei', yahei_normal))
+                pdfmetrics.registerFont(TTFont('MicrosoftYaHei-Bold', yahei_bold))
+                registered_font_name = 'MicrosoftYaHei'
+                registered_bold_font = 'MicrosoftYaHei-Bold'
+            else:
+                # 备选方案：微软雅黑复合字体
+                yahei_ttc = r"C:\Windows\Fonts\msyh.ttc"
+                if os.path.exists(yahei_ttc):
+                    pdfmetrics.registerFont(TTFont('MicrosoftYaHei', yahei_ttc))
+                    pdfmetrics.registerFont(TTFont('MicrosoftYaHei-Bold', yahei_ttc))
+                    registered_font_name = 'MicrosoftYaHei'
+                    registered_bold_font = 'MicrosoftYaHei-Bold'
+                else:
+                    # 最后备选：黑体
+                    simhei_font = r"C:\Windows\Fonts\simhei.ttf"
+                    if os.path.exists(simhei_font):
+                        pdfmetrics.registerFont(TTFont('SimHei', simhei_font))
+                        pdfmetrics.registerFont(TTFont('SimHei-Bold', simhei_font))
+                        registered_font_name = 'SimHei'
+                        registered_bold_font = 'SimHei-Bold'
+                    else:
+                        # 如果都没有，使用默认字体
+                        registered_font_name = 'Helvetica'
+                        registered_bold_font = 'Helvetica-Bold'
+                        
+    except Exception as e:
+        # 如果字体注册失败，使用默认字体
+        registered_font_name = 'Helvetica'
+        registered_bold_font = 'Helvetica-Bold'
+
+    elements = []
+    
+    # 使用已注册的字体名称
+    font_name = registered_font_name
+    bold_font = registered_bold_font
+    
+    # 构建完整的表格数据，包含标题行和所有信息
+    table_data = []
+    
+    # 第一行：合并的标题 "卷内目录"
+    table_data.append(['卷内目录', '', '', '', '', '', '', ''])
+    
+    # 第二行：全宗号信息（空A-D列，E列"全宗号", F列"120", G列"类目", H列"BL"）
+    table_data.append(['', '', '', '', '全宗号', '120', '类目', 'BL'])
+    
+    # 第三行：箱号信息（空A-F列，G列"箱号", H列箱号数字）
+    table_data.append(['', '', '', '', '', '', '箱号', box_number if box_number is not None else ''])
+    
+    # 第四行：表头
+    table_data.append(['顺序号', '病案号', '出院科室', '患者姓名', '出院时间', '入院时间', '成像张数', '备注'])
+    
+    # 添加数据行
+    seq = sequence_start
+    for rec in records:
+        discharge_time = rec.get("discharge_time", "")
+        admission_time = rec.get("admission_time", "")
+        
+        # 处理日期格式
+        try:
+            from datetime import datetime
+            if isinstance(discharge_time, datetime):
+                discharge_time = discharge_time.strftime("%Y-%m-%d")
+            if isinstance(admission_time, datetime):
+                admission_time = admission_time.strftime("%Y-%m-%d")
+        except:
+            pass
+        
+        table_data.append([
+            str(seq),
+            str(rec.get("case_no", "")),
+            str(rec.get("department", "")),
+            str(rec.get("patient_name", "")),
+            str(discharge_time),
+            str(admission_time),
+            str(rec.get("image_count", "")),
+            ""  # 备注留空
+        ])
+        seq += 1
+    
+    # 设置所有列的宽度（按Excel比例调整，更紧凑）
+    col_widths = [14*mm, 20*mm, 25*mm, 15*mm, 32*mm, 32*mm, 15*mm, 20*mm]
+    
+    # 创建完整表格
+    table = Table(table_data, colWidths=col_widths, repeatRows=4)  # 设置表头重复
+    
+    # 应用详细样式
+    style = TableStyle([
+        # 字体设置
+        ('FONTNAME', (0, 0), (-1, -1), font_name),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),  # 整体字体大小
+        
+        # 第一行标题样式
+        ('FONTNAME', (0, 0), (-1, 0), bold_font),
+        ('FONTSIZE', (0, 0), (-1, 0), 19),
+        ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, 0), 'MIDDLE'),
+        ('SPAN', (0, 0), (7, 0)),  # 合并单元格
+        
+        # 第二行信息样式
+        ('FONTSIZE', (4, 1), (7, 1), 13),
+        ('ALIGN', (4, 1), (7, 1), 'CENTER'),
+        ('VALIGN', (4, 1), (7, 1), 'MIDDLE'),
+        
+        # 第三行箱号样式 
+        ('FONTSIZE', (6, 2), (7, 2), 13),
+        ('ALIGN', (6, 2), (7, 2), 'CENTER'),
+        ('VALIGN', (6, 2), (7, 2), 'MIDDLE'),
+        
+        # 第四行表头样式
+        ('FONTNAME', (0, 3), (-1, 3), bold_font),
+        ('FONTSIZE', (0, 3), (-1, 3), 10),
+        ('ALIGN', (0, 3), (-1, 3), 'CENTER'),
+        ('VALIGN', (0, 3), (-1, 3), 'MIDDLE'),
+        ('BACKGROUND', (0, 3), (-1, 3), colors.Color(239/255, 239/255, 239/255)),  # #EFEFEF
+        
+        # 数据行样式
+        ('FONTSIZE', (0, 4), (-1, -1), 8),
+        ('ALIGN', (0, 4), (0, -1), 'CENTER'),  # 顺序号居中
+        ('ALIGN', (6, 4), (6, -1), 'CENTER'),  # 成像张数居中
+        ('VALIGN', (0, 4), (-1, -1), 'MIDDLE'),
+        
+        # 边框设置 - 完整的网格线
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+        
+        # 行高调整 - 关键修改
+        ('TOPPADDING', (0, 0), (-1, 0), 0),    # 标题行上方内边距
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 11), # 标题行下方内边距
+        ('TOPPADDING', (0, 1), (-1, 2), -1),      # 信息行内边距
+        ('BOTTOMPADDING', (0, 1), (-1, 2), 3),  # 信息行内边距
+        ('TOPPADDING', (0, 3), (-1, 3), 1),      # 表头内边距
+        ('BOTTOMPADDING', (0, 3), (-1, 3), 2),  # 表头内边距
+        ('TOPPADDING', (0, 4), (-1, -1), 2),     # 数据行上边距减小
+        ('BOTTOMPADDING', (0, 4), (-1, -1), 0), # 数据行下边距减小
+    ])
+    
+    table.setStyle(style)
+    elements.append(table)
+    
+    # 生成PDF
+    doc.build(elements)
+    
+    return seq
+
+
 def process_all(
     data_dir: str,
     sequence_start: int,
     output_dir: str,
+    export_type: str = "excel",  # "excel" 或 "pdf"
     on_progress: Optional[Callable[[int, int, str, Dict[str, float]], None]] = None,
     on_log: Optional[Callable[[str], None]] = None,
     should_stop: Optional[Callable[[], bool]] = None,
@@ -291,12 +498,21 @@ def process_all(
         records = read_records_from_xls(xls)
 
         box_no = extract_box_number_from_filename(xls)
-        out_name = f"{os.path.splitext(name)[0]}.xlsx"
-        out_path = os.path.join(output_dir, out_name)
+        
+        if export_type == "pdf":
+            out_name = f"{os.path.splitext(name)[0]}.pdf"
+            out_path = os.path.join(output_dir, out_name)
+        else:
+            out_name = f"{os.path.splitext(name)[0]}.xlsx"
+            out_path = os.path.join(output_dir, out_name)
 
         if on_log:
             on_log(f"导出: {out_name}")
-        next_seq = build_and_export_workbook(records, box_no, current_seq, out_path)
+        
+        if export_type == "pdf":
+            next_seq = build_and_export_pdf(records, box_no, current_seq, out_path)
+        else:
+            next_seq = build_and_export_workbook(records, box_no, current_seq, out_path)
         current_seq = next_seq
 
         file_elapsed = time.time() - file_start
@@ -336,6 +552,7 @@ class App:
         self.data_dir_var = tk.StringVar()
         self.seq_var = tk.IntVar(value=1)
         self.output_dir_var = tk.StringVar(value=os.path.join(os.path.dirname(os.path.abspath(__file__)), "output"))
+        self.export_type_var = tk.StringVar(value="excel")  # 默认导出类型为Excel
         self.status_var = tk.StringVar(value="就绪")
         self.percent_var = tk.StringVar(value="0.00%")
         self.eta_var = tk.StringVar(value="ETA 00:00")
@@ -365,6 +582,14 @@ class App:
         ttk.Label(frm_seq, text="起始顺序号:").pack(side=tk.LEFT)
         spn = ttk.Spinbox(frm_seq, from_=1, to=999999, textvariable=self.seq_var, width=8)
         spn.pack(side=tk.LEFT, padx=6)
+        
+        # 导出类型选择
+        ttk.Label(frm_seq, text="导出格式:").pack(side=tk.LEFT, padx=(12, 0))
+        excel_radio = ttk.Radiobutton(frm_seq, text="Excel", variable=self.export_type_var, value="excel")
+        excel_radio.pack(side=tk.LEFT)
+        pdf_radio = ttk.Radiobutton(frm_seq, text="PDF", variable=self.export_type_var, value="pdf")
+        pdf_radio.pack(side=tk.LEFT, padx=(0, 6))
+        
         self.btn_start = ttk.Button(frm_seq, text="开始", command=self._start)
         self.btn_start.pack(side=tk.LEFT)
         self.btn_stop = ttk.Button(frm_seq, text="停止", command=self._stop, state=tk.DISABLED)
@@ -401,7 +626,7 @@ class App:
         frm_bottom.pack(fill=tk.X, side=tk.BOTTOM)
         link = tk.Label(
             frm_bottom,
-            text="v2025.10.28 by BNDou",
+            text="v2026.01.24 by BNDou",
             fg="blue",
             font=("SimHei", 10, "bold"),
             cursor="hand2",
@@ -466,6 +691,7 @@ class App:
                     data_dir,
                     seq,
                     output_dir,
+                    export_type=self.export_type_var.get(),
                     on_progress=self._on_progress,
                     on_log=self._on_log,
                     should_stop=lambda: self._stop_requested,
@@ -537,5 +763,3 @@ def _wait_exit():
 if __name__ == "__main__":
     # 默认启动 GUI
     main_gui()
-
-
