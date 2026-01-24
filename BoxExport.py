@@ -5,7 +5,7 @@ FilePath     : /BoxExport/BoxExport.py
 Description  :  
 Author       : BNDou
 Date         : 2025-10-28 21:32:19
-LastEditTime : 2026-01-25 01:42:46
+LastEditTime : 2026-01-25 02:20:28
 '''
 import os
 import sys
@@ -437,10 +437,11 @@ def build_and_export_pdf(records: List[dict], box_number: Optional[int], sequenc
         ('ALIGN', (6, 4), (6, -1), 'CENTER'),  # 成像张数居中
         ('VALIGN', (0, 4), (-1, -1), 'MIDDLE'),
         
-        # 边框设置 - 完整的网格线
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+        # 优化边框设置 - 减少边框数量和粗细以减小文件体积
+        ('GRID', (0, 0), (-1, -1), 0.25, colors.black),
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.black),  # 外边框略粗
         
-        # 行高调整 - 关键修改
+        # 简化行高调整
         ('TOPPADDING', (0, 0), (-1, 0), 0),    # 标题行上方内边距
         ('BOTTOMPADDING', (0, 0), (-1, 0), 11), # 标题行下方内边距
         ('TOPPADDING', (0, 1), (-1, 2), -1),      # 信息行内边距
@@ -698,7 +699,7 @@ class App:
                 )
                 self.root.after(0, lambda: messagebox.showinfo("完成", "处理完成。请在导出目录查看导出文件。"))
             except Exception as e:
-                self.root.after(0, lambda: messagebox.showerror("错误", str(e)))
+                self.root.after(0, lambda e=e: messagebox.showerror("错误", str(e)))
             finally:
                 def finish():
                     self._running = False
