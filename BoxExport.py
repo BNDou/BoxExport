@@ -5,7 +5,7 @@ FilePath     : /BoxExport/BoxExport.py
 Description  :  
 Author       : BNDou
 Date         : 2025-10-28 21:32:19
-LastEditTime : 2026-01-25 02:20:28
+LastEditTime : 2026-01-28 19:47:42
 '''
 import os
 import sys
@@ -108,8 +108,8 @@ def read_records_from_xls(xls_path: str) -> List[dict]:
     C 病案号
     D 出院科室
     E 患者姓名
-    F 出院时间
-    G 入院时间
+    F 出院日期
+    G 入院日期
     H 成像张数
     I 备注（暂不导出）
 
@@ -170,7 +170,7 @@ def build_and_export_workbook(records: List[dict], box_number: Optional[int], se
 
     # A1-H1 合并，标题
     ws.merge_cells("A1:H1")
-    ws["A1"] = "卷内目录"
+    ws["A1"] = "案卷目录"
     ws["A1"].alignment = center
     ws["A1"].font = Font(name="Microsoft YaHei UI", size=20, bold=True)
     ws.row_dimensions[1].height = 25
@@ -197,11 +197,11 @@ def build_and_export_workbook(records: List[dict], box_number: Optional[int], se
     # 第4行表头
     headers = [
         ("A4", "顺序号"),
-        ("B4", "病案号"),
+        ("B4", "案卷号（病案号）"),
         ("C4", "出院科室"),
         ("D4", "患者姓名"),
-        ("E4", "出院时间"),
-        ("F4", "入院时间"),
+        ("E4", "出院日期"),
+        ("F4", "入院日期"),
         ("G4", "成像张数"),
         ("H4", "备注"),
     ]
@@ -242,9 +242,27 @@ def build_and_export_workbook(records: List[dict], box_number: Optional[int], se
             cell.font = Font(name="Microsoft YaHei UI")
             cell.alignment = vcenter_left
 
-        # E 出院时间, F 入院时间（尽量保持日期展示）
+        # E 出院日期, F 入院日期（只保留日期部分）
         e_val = rec.get("discharge_time")
         f_val = rec.get("admission_time")
+        
+        # 处理日期格式，只保留日期部分
+        try:
+            from datetime import datetime
+            if isinstance(e_val, datetime):
+                e_val = e_val.date()  # 只保留日期部分
+                e_cell.number_format = "yyyy-mm-dd"
+            elif isinstance(e_val, str) and " " in e_val:
+                e_val = e_val.split(" ")[0]  # 如果是字符串格式，分割取日期部分
+            
+            if isinstance(f_val, datetime):
+                f_val = f_val.date()  # 只保留日期部分
+                f_cell.number_format = "yyyy-mm-dd"
+            elif isinstance(f_val, str) and " " in f_val:
+                f_val = f_val.split(" ")[0]  # 如果是字符串格式，分割取日期部分
+        except Exception:
+            pass
+        
         e_cell = ws.cell(row=current_row, column=5, value=e_val)
         f_cell = ws.cell(row=current_row, column=6, value=f_val)
         # 设置垂直居中对齐
@@ -285,14 +303,14 @@ def build_and_export_workbook(records: List[dict], box_number: Optional[int], se
 
 def build_and_export_pdf(records: List[dict], box_number: Optional[int], sequence_start: int, out_path: str) -> int:
     """
-    使用reportlab生成PDF格式的卷内目录，A4纸张大小，完全匹配Excel格式
+    使用reportlab生成PDF格式的案卷目录，A4纸张大小，完全匹配Excel格式
     """
     # 初始化字体变量
     registered_font_name = 'Helvetica'
     registered_bold_font = 'Helvetica-Bold'
     
     # 设置较小的上下边距，确保内容更多
-    doc = SimpleDocTemplate(out_path, pagesize=A4, topMargin=10*mm, bottomMargin=10*mm)
+    doc = SimpleDocTemplate(out_path, pagesize=A4, topMargin=6*mm, bottomMargin=10*mm)
     
     # 注册中文字体（优先使用项目fonts目录，再使用系统字体）
     try:
@@ -355,8 +373,8 @@ def build_and_export_pdf(records: List[dict], box_number: Optional[int], sequenc
     # 构建完整的表格数据，包含标题行和所有信息
     table_data = []
     
-    # 第一行：合并的标题 "卷内目录"
-    table_data.append(['卷内目录', '', '', '', '', '', '', ''])
+    # 第一行：合并的标题 "案卷目录"
+    table_data.append(['案卷目录', '', '', '', '', '', '', ''])
     
     # 第二行：全宗号信息（空A-D列，E列"全宗号", F列"120", G列"类目", H列"BL"）
     table_data.append(['', '', '', '', '全宗号', '120', '类目', 'BL'])
@@ -365,7 +383,7 @@ def build_and_export_pdf(records: List[dict], box_number: Optional[int], sequenc
     table_data.append(['', '', '', '', '', '', '箱号', box_number if box_number is not None else ''])
     
     # 第四行：表头
-    table_data.append(['顺序号', '病案号', '出院科室', '患者姓名', '出院时间', '入院时间', '成像张数', '备注'])
+    table_data.append(['顺序号', '案卷号 (病案号)', '出院科室', '患者姓名', '出院日期', '入院日期', '成像张数', '备注'])
     
     # 添加数据行
     seq = sequence_start
@@ -373,13 +391,18 @@ def build_and_export_pdf(records: List[dict], box_number: Optional[int], sequenc
         discharge_time = rec.get("discharge_time", "")
         admission_time = rec.get("admission_time", "")
         
-        # 处理日期格式
+        # 处理日期格式，只保留日期部分
         try:
             from datetime import datetime
             if isinstance(discharge_time, datetime):
                 discharge_time = discharge_time.strftime("%Y-%m-%d")
+            elif isinstance(discharge_time, str) and " " in discharge_time:
+                discharge_time = discharge_time.split(" ")[0]  # 如果是字符串格式，分割取日期部分
+            
             if isinstance(admission_time, datetime):
                 admission_time = admission_time.strftime("%Y-%m-%d")
+            elif isinstance(admission_time, str) and " " in admission_time:
+                admission_time = admission_time.split(" ")[0]  # 如果是字符串格式，分割取日期部分
         except:
             pass
         
@@ -396,7 +419,7 @@ def build_and_export_pdf(records: List[dict], box_number: Optional[int], sequenc
         seq += 1
     
     # 设置所有列的宽度（按Excel比例调整，更紧凑）
-    col_widths = [14*mm, 20*mm, 25*mm, 15*mm, 32*mm, 32*mm, 15*mm, 20*mm]
+    col_widths = [15*mm, 30*mm, 30*mm, 18*mm, 21*mm, 21*mm, 18*mm, 20*mm]
     
     # 创建完整表格
     table = Table(table_data, colWidths=col_widths, repeatRows=4)  # 设置表头重复
@@ -409,30 +432,30 @@ def build_and_export_pdf(records: List[dict], box_number: Optional[int], sequenc
         
         # 第一行标题样式
         ('FONTNAME', (0, 0), (-1, 0), bold_font),
-        ('FONTSIZE', (0, 0), (-1, 0), 19),
+        ('FONTSIZE', (0, 0), (-1, 0), 20),
         ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
         ('VALIGN', (0, 0), (-1, 0), 'MIDDLE'),
         ('SPAN', (0, 0), (7, 0)),  # 合并单元格
         
         # 第二行信息样式
-        ('FONTSIZE', (4, 1), (7, 1), 13),
+        ('FONTSIZE', (4, 1), (7, 1), 14),
         ('ALIGN', (4, 1), (7, 1), 'CENTER'),
         ('VALIGN', (4, 1), (7, 1), 'MIDDLE'),
         
         # 第三行箱号样式 
-        ('FONTSIZE', (6, 2), (7, 2), 13),
+        ('FONTSIZE', (6, 2), (7, 2), 14),
         ('ALIGN', (6, 2), (7, 2), 'CENTER'),
         ('VALIGN', (6, 2), (7, 2), 'MIDDLE'),
         
         # 第四行表头样式
         ('FONTNAME', (0, 3), (-1, 3), bold_font),
-        ('FONTSIZE', (0, 3), (-1, 3), 10),
+        ('FONTSIZE', (0, 3), (-1, 3), 11),
         ('ALIGN', (0, 3), (-1, 3), 'CENTER'),
         ('VALIGN', (0, 3), (-1, 3), 'MIDDLE'),
         ('BACKGROUND', (0, 3), (-1, 3), colors.Color(239/255, 239/255, 239/255)),  # #EFEFEF
         
         # 数据行样式
-        ('FONTSIZE', (0, 4), (-1, -1), 8),
+        ('FONTSIZE', (0, 4), (-1, -1), 9),
         ('ALIGN', (0, 4), (0, -1), 'CENTER'),  # 顺序号居中
         ('ALIGN', (6, 4), (6, -1), 'CENTER'),  # 成像张数居中
         ('VALIGN', (0, 4), (-1, -1), 'MIDDLE'),
@@ -443,9 +466,9 @@ def build_and_export_pdf(records: List[dict], box_number: Optional[int], sequenc
         
         # 简化行高调整
         ('TOPPADDING', (0, 0), (-1, 0), 0),    # 标题行上方内边距
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 11), # 标题行下方内边距
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12), # 标题行下方内边距
         ('TOPPADDING', (0, 1), (-1, 2), -1),      # 信息行内边距
-        ('BOTTOMPADDING', (0, 1), (-1, 2), 3),  # 信息行内边距
+        ('BOTTOMPADDING', (0, 1), (-1, 2), 5),  # 信息行内边距
         ('TOPPADDING', (0, 3), (-1, 3), 1),      # 表头内边距
         ('BOTTOMPADDING', (0, 3), (-1, 3), 2),  # 表头内边距
         ('TOPPADDING', (0, 4), (-1, -1), 2),     # 数据行上边距减小
@@ -547,7 +570,7 @@ def process_all(
 class App:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("病案卷内目录批量生成")
+        self.root.title("病案案卷目录批量生成")
         self.root.geometry("820x520+0+0")
 
         self.data_dir_var = tk.StringVar()
@@ -627,7 +650,7 @@ class App:
         frm_bottom.pack(fill=tk.X, side=tk.BOTTOM)
         link = tk.Label(
             frm_bottom,
-            text="v2026.01.24 by BNDou",
+            text="v2026.01.28 by BNDou",
             fg="blue",
             font=("SimHei", 10, "bold"),
             cursor="hand2",
