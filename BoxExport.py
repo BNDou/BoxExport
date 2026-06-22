@@ -5,7 +5,7 @@ FilePath     : /BoxExport/BoxExport.py
 Description  :  
 Author       : BNDou
 Date         : 2025-10-28 21:32:19
-LastEditTime : 2026-01-28 19:47:42
+LastEditTime : 2026-06-22 23:21:24
 '''
 import os
 import sys
@@ -18,6 +18,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
 from tkinter import ttk
 from typing import List, Tuple, Optional, Callable, Dict
+from datetime import datetime, date
 
 try:
     import xlrd
@@ -155,6 +156,28 @@ def extract_box_number_from_filename(path: str) -> Optional[int]:
         return None
 
 
+def _date_to_yyyymmdd(value):
+    """
+    将日期值统一转换为 YYYYMMDD 格式字符串（无分隔符）。
+    支持 datetime/date 对象与字符串。值为空或转换失败时保持原值。
+    """
+    if value is None or value == "":
+        return value
+    try:
+        if isinstance(value, (datetime, date)):
+            return value.strftime("%Y%m%d")
+        if isinstance(value, str):
+            # 去除所有非数字字符（去掉 -、/、空格等分隔符），只保留 8 位数字
+            digits = "".join(ch for ch in value if ch.isdigit())
+            if len(digits) >= 8:
+                return digits[:8]
+            # 不足 8 位数字，转换失败，保持原值
+            return value
+    except Exception:
+        pass
+    return value
+
+
 def build_and_export_workbook(records: List[dict], box_number: Optional[int], sequence_start: int, out_path: str) -> int:
     wb = Workbook()
     ws = wb.active
@@ -242,41 +265,15 @@ def build_and_export_workbook(records: List[dict], box_number: Optional[int], se
             cell.font = Font(name="Microsoft YaHei UI")
             cell.alignment = vcenter_left
 
-        # E 出院日期, F 入院日期（只保留日期部分）
-        e_val = rec.get("discharge_time")
-        f_val = rec.get("admission_time")
-        
-        # 处理日期格式，只保留日期部分
-        try:
-            from datetime import datetime
-            if isinstance(e_val, datetime):
-                e_val = e_val.date()  # 只保留日期部分
-                e_cell.number_format = "yyyy-mm-dd"
-            elif isinstance(e_val, str) and " " in e_val:
-                e_val = e_val.split(" ")[0]  # 如果是字符串格式，分割取日期部分
-            
-            if isinstance(f_val, datetime):
-                f_val = f_val.date()  # 只保留日期部分
-                f_cell.number_format = "yyyy-mm-dd"
-            elif isinstance(f_val, str) and " " in f_val:
-                f_val = f_val.split(" ")[0]  # 如果是字符串格式，分割取日期部分
-        except Exception:
-            pass
-        
+        # E 出院日期, F 入院日期（统一转为 YYYYMMDD 格式字符串）
+        e_val = _date_to_yyyymmdd(rec.get("discharge_time"))
+        f_val = _date_to_yyyymmdd(rec.get("admission_time"))
+
         e_cell = ws.cell(row=current_row, column=5, value=e_val)
         f_cell = ws.cell(row=current_row, column=6, value=f_val)
         # 设置垂直居中对齐
         e_cell.alignment = vcenter_left
         f_cell.alignment = vcenter_left
-        # 若为 datetime，设置日期格式
-        try:
-            from datetime import datetime
-            if isinstance(e_val, datetime):
-                e_cell.number_format = "yyyy-mm-dd"
-            if isinstance(f_val, datetime):
-                f_cell.number_format = "yyyy-mm-dd"
-        except Exception:
-            pass
 
         # G 成像张数（居中）
         g_cell = ws.cell(row=current_row, column=7, value=rec.get("image_count"))
@@ -388,23 +385,9 @@ def build_and_export_pdf(records: List[dict], box_number: Optional[int], sequenc
     # 添加数据行
     seq = sequence_start
     for rec in records:
-        discharge_time = rec.get("discharge_time", "")
-        admission_time = rec.get("admission_time", "")
-        
-        # 处理日期格式，只保留日期部分
-        try:
-            from datetime import datetime
-            if isinstance(discharge_time, datetime):
-                discharge_time = discharge_time.strftime("%Y-%m-%d")
-            elif isinstance(discharge_time, str) and " " in discharge_time:
-                discharge_time = discharge_time.split(" ")[0]  # 如果是字符串格式，分割取日期部分
-            
-            if isinstance(admission_time, datetime):
-                admission_time = admission_time.strftime("%Y-%m-%d")
-            elif isinstance(admission_time, str) and " " in admission_time:
-                admission_time = admission_time.split(" ")[0]  # 如果是字符串格式，分割取日期部分
-        except:
-            pass
+        # 日期统一转为 YYYYMMDD 格式字符串
+        discharge_time = _date_to_yyyymmdd(rec.get("discharge_time", ""))
+        admission_time = _date_to_yyyymmdd(rec.get("admission_time", ""))
         
         table_data.append([
             str(seq),
@@ -484,11 +467,167 @@ def build_and_export_pdf(records: List[dict], box_number: Optional[int], sequenc
     return seq
 
 
+# 科室全称 -> 简写 映射表
+DEPARTMENT_ABBR_MAP: Dict[str, str] = {
+    "ICU二病区": "ICU二",
+    "中医科病区": "中医",
+    "产科病区": "产",
+    "儿内科病区": "儿",
+    "全科医疗科病区": "全科",
+    "内分泌科病区": "内分泌",
+    "口腔科病区": "口",
+    "呼吸内科病区": "呼",
+    "妇科病区": "妇",
+    "康复科病区": "康",
+    "心胸外科病区": "胸外",
+    "心血管内科病区": "心内",
+    "急诊医学科病区": "急诊医学",
+    "新生儿科病区": "新",
+    "普通外科一病区": "普一",
+    "普通外科三病区": "普三",
+    "普通外科二病区": "普二",
+    "泌尿外科病区": "泌外",
+    "消化内科病区": "消",
+    "皮肤科病区": "皮",
+    "眼科病区": "眼",
+    "神经内科病区": "神内",
+    "神经外科病区": "神外",
+    "老年病科一病区": "干一",
+    "老年病科二病区": "干二",
+    "耳鼻喉科病区": "耳",
+    "肾病学病区": "肾",
+    "肿瘤科病区": "肿",
+    "血液内科病区": "血液",
+    "血管外科病区": "血外",
+    "重症医学科": "重",
+    "骨科一病区": "骨一",
+    "骨科三病区": "骨三",
+    "骨科二病区": "骨二",
+}
+
+
+def _abbreviate_department(dept_name: str) -> str:
+    """
+    将科室全称转换为简写。
+    若科室名不在映射表中，则返回去除首尾空格的原值（兜底处理，保持健壮性）。
+    """
+    if dept_name is None:
+        return ""
+    cleaned = str(dept_name).strip()
+    return DEPARTMENT_ABBR_MAP.get(cleaned, cleaned)
+
+
+def merge_duplicate_records(records: List[dict]) -> List[dict]:
+    """
+    对同一文件内相同案卷号（case_no）的多条记录进行合并。
+    合并规则：
+    - 入院日期（admission_time）：取所有记录中的最小值（最早日期）
+    - 出院日期（discharge_time）：取所有记录中的最大值（最晚日期）
+    - 成像张数（image_count）：取所有记录的总和
+    - 出院科室（department）：所有记录科室相同则输出该科室全称；
+      不同则输出各科室简写并用中文顿号「、」连接
+    - 其他字段（patient_name）：取第一条记录的值
+    保持合并后记录按首次出现的顺序排列。
+    """
+    if not records:
+        return records
+
+    def _to_date_obj(value):
+        """将日期值转换为可比较的 date 对象，失败返回 None。"""
+        if value is None or value == "":
+            return None
+        try:
+            if isinstance(value, datetime):
+                return value.date()
+            if isinstance(value, date):
+                return value
+            if isinstance(value, str):
+                digits = "".join(ch for ch in value if ch.isdigit())
+                if len(digits) >= 8:
+                    return datetime.strptime(digits[:8], "%Y%m%d").date()
+        except Exception:
+            pass
+        return None
+
+    def _to_float(value):
+        """将成像张数转为 float，失败返回 0.0。"""
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _date_obj_to_orig(date_obj, original_value):
+        """将 date 对象转回原始值的格式。"""
+        if isinstance(original_value, (datetime, date)):
+            return date_obj
+        return date_obj.strftime("%Y%m%d")
+
+    # 按 case_no 分组，保持首次出现顺序
+    groups: Dict[object, List[dict]] = {}
+    order: List[object] = []
+    for rec in records:
+        key = rec.get("case_no")
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(rec)
+
+    merged: List[dict] = []
+    for key in order:
+        group = groups[key]
+        if len(group) == 1:
+            merged.append(dict(group[0]))
+            continue
+
+        first = dict(group[0])
+
+        # 入院日期取最小值（最早日期）
+        admission_dates = [_to_date_obj(r.get("admission_time")) for r in group]
+        valid_admission = [d for d in admission_dates if d is not None]
+        if valid_admission:
+            min_admission = min(valid_admission)
+            first["admission_time"] = _date_obj_to_orig(min_admission, group[0].get("admission_time"))
+
+        # 出院日期取最大值（最晚日期）
+        discharge_dates = [_to_date_obj(r.get("discharge_time")) for r in group]
+        valid_discharge = [d for d in discharge_dates if d is not None]
+        if valid_discharge:
+            max_discharge = max(valid_discharge)
+            first["discharge_time"] = _date_obj_to_orig(max_discharge, group[0].get("discharge_time"))
+
+        # 成像张数取总和（先转 float 求和，再转回 int 如果和是整数）
+        total_count = sum(_to_float(r.get("image_count")) for r in group)
+        if total_count == int(total_count):
+            first["image_count"] = int(total_count)
+        else:
+            first["image_count"] = total_count
+
+        # 出院科室合并处理：相同则输出全称，不同则输出简写并用中文顿号连接
+        departments = []
+        for r in group:
+            dept = r.get("department")
+            if dept is None:
+                continue
+            dept = str(dept).strip()
+            if dept and dept not in departments:
+                departments.append(dept)
+        if len(departments) == 1:
+            first["department"] = departments[0]
+        elif len(departments) > 1:
+            first["department"] = "、".join(
+                _abbreviate_department(d) for d in departments
+            )
+
+        merged.append(first)
+
+    return merged
+
+
 def process_all(
     data_dir: str,
     sequence_start: int,
     output_dir: str,
-    export_type: str = "excel",  # "excel" 或 "pdf"
+    export_type: str = "pdf",  # "excel" 或 "pdf"
     on_progress: Optional[Callable[[int, int, str, Dict[str, float]], None]] = None,
     on_log: Optional[Callable[[str], None]] = None,
     should_stop: Optional[Callable[[], bool]] = None,
@@ -520,6 +659,7 @@ def process_all(
         if on_log:
             on_log(f"读取: {name}")
         records = read_records_from_xls(xls)
+        records = merge_duplicate_records(records)
 
         box_no = extract_box_number_from_filename(xls)
         
@@ -576,7 +716,7 @@ class App:
         self.data_dir_var = tk.StringVar()
         self.seq_var = tk.IntVar(value=1)
         self.output_dir_var = tk.StringVar(value=os.path.join(os.path.dirname(os.path.abspath(__file__)), "output"))
-        self.export_type_var = tk.StringVar(value="excel")  # 默认导出类型为Excel
+        self.export_type_var = tk.StringVar(value="pdf")  # 默认导出类型为PDF
         self.status_var = tk.StringVar(value="就绪")
         self.percent_var = tk.StringVar(value="0.00%")
         self.eta_var = tk.StringVar(value="ETA 00:00")
@@ -650,7 +790,7 @@ class App:
         frm_bottom.pack(fill=tk.X, side=tk.BOTTOM)
         link = tk.Label(
             frm_bottom,
-            text="v2026.01.28 by BNDou",
+            text="v2026.06.22 by BNDou",
             fg="blue",
             font=("SimHei", 10, "bold"),
             cursor="hand2",
